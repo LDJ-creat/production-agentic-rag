@@ -243,8 +243,9 @@ class LangfuseTracer:
             return
 
         try:
-            generation = self.client.generation(
+            generation = self.client.start_observation(
                 name=name,
+                as_type="generation",
                 model=model,
                 input=input_data,
                 metadata=metadata or {},
@@ -289,8 +290,9 @@ class LangfuseTracer:
             return
 
         try:
-            span = self.client.span(
+            span = self.client.start_observation(
                 name=name,
+                as_type="span",
                 input=input_data,
                 metadata=metadata or {},
             )
@@ -298,6 +300,27 @@ class LangfuseTracer:
         except Exception as e:
             logger.error(f"Error creating span: {e}")
             yield None
+
+    def create_span(
+        self,
+        trace=None,
+        name: str = "span",
+        input_data: Optional[Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """Compatibility helper for callers expecting create_span()."""
+        if not self.client:
+            return None
+        try:
+            return self.client.start_observation(
+                name=name,
+                as_type="span",
+                input=input_data,
+                metadata=metadata or {},
+            )
+        except Exception as e:
+            logger.error(f"Error creating span: {e}")
+            return None
 
     def update_generation(
         self,
