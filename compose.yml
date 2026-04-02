@@ -27,7 +27,9 @@ services:
       - OLLAMA_HOST=http://ollama:11434
       - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
       - LANGFUSE_HOST=http://langfuse-web:3000 
+      - LANGFUSE__HOST=http://langfuse-web:3000
       - LANGFUSE_DEBUG=true
+      - LANGFUSE__DEBUG=true
       - REDIS__HOST=redis
     networks:
       - rag-network
@@ -126,7 +128,7 @@ services:
       - "8080:8080"
     # Command handled by entrypoint.sh
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null && airflow jobs check --job-type SchedulerJob --allow-multiple --limit 2 >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -139,6 +141,13 @@ services:
     container_name: rag-ollama
     ports:
       - "11434:11434"
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,ollama,rag-ollama,api,rag-api,opensearch,rag-opensearch,postgres,rag-postgres}
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
