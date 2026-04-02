@@ -11,9 +11,9 @@ COPY pyproject.toml uv.lock ./
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 # Install dependencies
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=/app/uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml \
+RUN python -m pip install --upgrade pip setuptools wheel || true
+
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-v2 \
     uv sync --frozen --no-dev
 
 # Copy source code
