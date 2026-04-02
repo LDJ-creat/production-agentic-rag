@@ -12,6 +12,8 @@ RUN apt-get update && \
         build-essential \
         curl \
         git \
+        libgl1 \
+        libglib2.0-0 \
         libpq-dev \
         poppler-utils \
         tesseract-ocr \
@@ -37,6 +39,11 @@ RUN pip install --no-cache-dir \
 # Copy requirements and install project dependencies
 COPY requirements-airflow.txt /tmp/requirements-airflow.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
+
+# Add prefetch script and run it during build to download Docling snapshots
+COPY scripts/prefetch_docling.sh /tmp/prefetch_docling.sh
+RUN chmod +x /tmp/prefetch_docling.sh && \
+    /tmp/prefetch_docling.sh || echo "Docling prefetch script exited with non-zero code; continuing build"
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh

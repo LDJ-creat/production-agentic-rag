@@ -30,6 +30,7 @@ dag = DAG(
     schedule="0 6 * * 1-5",  # Monday-Friday at 6 AM UTC
     max_active_runs=1,
     catchup=False,
+    is_paused_upon_creation=False,
     tags=["arxiv", "papers", "ingestion", "hybrid-search", "embeddings", "chunks"],
 )
 

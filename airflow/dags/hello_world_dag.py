@@ -48,6 +48,7 @@ dag = DAG(
     description="Hello World DAG for Week 1",
     schedule=None,
     catchup=False,
+    is_paused_upon_creation=False,
     tags=["week1", "testing"],
 )
 

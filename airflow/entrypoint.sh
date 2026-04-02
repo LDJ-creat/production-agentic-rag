@@ -1,10 +1,12 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Clean up any existing PID files and processes
 echo "Cleaning up any existing Airflow processes..."
-pkill -f "airflow webserver" || true
-pkill -f "airflow scheduler" || true
+if command -v pkill >/dev/null 2>&1; then
+    pkill -f "airflow webserver" || true
+    pkill -f "airflow scheduler" || true
+fi
 rm -f /opt/airflow/airflow-webserver.pid
 rm -f /opt/airflow/airflow-scheduler.pid
 
@@ -27,5 +29,12 @@ airflow users create \
 
 # Start webserver and scheduler
 echo "Starting Airflow webserver and scheduler..."
-airflow webserver --port 8080 --daemon &
-airflow scheduler
+airflow scheduler &
+SCHEDULER_PID=$!
+
+airflow webserver --port 8080 &
+WEBSERVER_PID=$!
+
+# Keep container alive while both processes are healthy; exit on first failure.
+wait -n "$SCHEDULER_PID" "$WEBSERVER_PID"
+exit $?
