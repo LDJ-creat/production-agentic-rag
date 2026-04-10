@@ -2,12 +2,13 @@ import asyncio
 import json
 import logging
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
-from telegram import Bot
+sys.path.insert(0, "/opt/airflow")
 
 from src.config import get_settings
 from src.services.feishu.client import FeishuClient
@@ -68,6 +69,7 @@ _ABSTRACT_KEYWORDS: Sequence[Tuple[str, float, str]] = (
 )
 
 _DIGEST_STATE_PATH = Path("data/paper_digests/digest_state.json")
+_DISPLAY_TZ = timezone(timedelta(hours=8))
 
 
 def _normalize_datetime(value: Optional[datetime]) -> datetime:
@@ -76,6 +78,11 @@ def _normalize_datetime(value: Optional[datetime]) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _format_datetime_readable(value: datetime) -> str:
+    local_dt = _normalize_datetime(value).astimezone(_DISPLAY_TZ)
+    return local_dt.strftime("%Y-%m-%d %H:%M") + " (UTC+8)"
 
 
 def _extract_excerpt(abstract: str, max_sentences: int = 2, max_chars: int = 260) -> str:
@@ -223,7 +230,7 @@ def _render_digest_markdown(window_start: datetime, window_end: datetime, papers
     lines = [
         f"# arXiv 论文日报 · {date_label}",
         "",
-        f"- 时间窗口: {window_start.isoformat()} -> {window_end.isoformat()}",
+        f"- 时间窗口: {_format_datetime_readable(window_start)} -> {_format_datetime_readable(window_end)}",
         f"- 入选论文: {len(papers)}",
         "",
     ]
@@ -248,7 +255,7 @@ def _render_digest_markdown(window_start: datetime, window_end: datetime, papers
                 f"- arXiv: https://arxiv.org/abs/{paper.arxiv_id}",
                 f"- 作者: {_format_authors(paper.authors)}",
                 f"- 分类: {', '.join(paper.categories) if paper.categories else 'unknown'}",
-                f"- 发布时间: {paper.published_date.isoformat()}",
+                f"- 发布时间: {_format_datetime_readable(paper.published_date)}",
                 f"- 推荐原因: {', '.join(paper.reasons) if paper.reasons else '匹配了时间窗口和基础相关性规则'}",
             ]
         )
@@ -257,6 +264,75 @@ def _render_digest_markdown(window_start: datetime, window_end: datetime, papers
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _trim_text(text: str, max_chars: int) -> str:
+    clean = " ".join((text or "").split())
+    if len(clean) <= max_chars:
+        return clean
+    return clean[: max_chars - 1].rstrip() + "…"
+
+
+def _build_feishu_interactive_card(digest_result: dict) -> dict:
+    papers = digest_result.get("selected_papers", [])
+    window_start_text = _format_datetime_readable(datetime.fromisoformat(digest_result["window_start"]))
+    window_end_text = _format_datetime_readable(datetime.fromisoformat(digest_result["window_end"]))
+    date_label = _normalize_datetime(datetime.fromisoformat(digest_result["window_end"])).astimezone(_DISPLAY_TZ).strftime("%Y-%m-%d")
+
+    elements: List[dict] = [
+        {
+            "tag": "markdown",
+            "content": (
+                f"**时间窗口**: {window_start_text} -> {window_end_text}\n"
+                f"**入选论文**: {len(papers)}"
+            ),
+        },
+        {"tag": "hr"},
+    ]
+
+    if not papers:
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": "今天没有满足阈值与去重规则的论文。",
+            }
+        )
+    else:
+        for idx, paper in enumerate(papers, 1):
+            title = _trim_text(str(paper.get("title") or "Untitled"), 180)
+            arxiv_id = str(paper.get("arxiv_id") or "")
+            authors = _trim_text(str(paper.get("authors") or "Unknown authors"), 120)
+            categories = _trim_text(str(paper.get("categories") or "unknown"), 80)
+            published_at = str(paper.get("published_at") or "")
+            reasons = _trim_text(str(paper.get("reasons") or ""), 140)
+            excerpt = _trim_text(str(paper.get("abstract_excerpt") or ""), 180)
+
+            lines = [
+                f"**{idx}. {title}**",
+                f"[查看论文](https://arxiv.org/abs/{arxiv_id})",
+                f"作者: {authors}",
+                f"分类: {categories}",
+                f"发布时间: {published_at}",
+            ]
+            if reasons:
+                lines.append(f"推荐原因: {reasons}")
+            if excerpt:
+                lines.append(f"摘要: {excerpt}")
+
+            elements.append({"tag": "markdown", "content": "\n".join(lines)})
+            if idx != len(papers):
+                elements.append({"tag": "hr"})
+
+    return {
+        "config": {"wide_screen_mode": True, "enable_forward": True},
+        "header": {
+            "title": {
+                "tag": "plain_text",
+                "content": f"arXiv 论文日报 · {date_label}",
+            }
+        },
+        "elements": elements,
+    }
 
 
 def _split_message(message: str, max_length: int = 3900) -> List[str]:
@@ -287,6 +363,14 @@ def _split_message(message: str, max_length: int = 3900) -> List[str]:
 
 
 async def _send_telegram_digest(bot_token: str, chat_id: str, message: str) -> None:
+    try:
+        from telegram import Bot
+    except Exception as e:
+        raise RuntimeError(
+            "python-telegram-bot is not installed in Airflow runtime. "
+            "Install dependencies and rebuild airflow image."
+        ) from e
+
     bot = Bot(token=bot_token)
     for chunk in _split_message(message):
         await bot.send_message(chat_id=chat_id, text=chunk, disable_web_page_preview=True)
@@ -297,16 +381,28 @@ async def _send_feishu_digest(
     app_secret: str,
     receive_id: str,
     receive_id_type: str,
-    message: str,
+    digest_result: dict,
+    message_fallback: str,
 ) -> None:
     client = FeishuClient(app_id=app_id, app_secret=app_secret)
-    for chunk in _split_message(message, max_length=3800):
+    card = _build_feishu_interactive_card(digest_result)
+
+    try:
         await client.send_message(
             receive_id=receive_id,
             receive_id_type=receive_id_type,
-            msg_type="text",
-            content={"text": chunk},
+            msg_type="interactive",
+            content=card,
         )
+    except Exception:
+        # Fallback to plain text when interactive cards are restricted by tenant policy.
+        for chunk in _split_message(message_fallback, max_length=3800):
+            await client.send_message(
+                receive_id=receive_id,
+                receive_id_type=receive_id_type,
+                msg_type="text",
+                content={"text": chunk},
+            )
 
 
 def generate_daily_paper_digest(**context):
@@ -390,6 +486,18 @@ def generate_daily_paper_digest(**context):
         "min_score": digest_settings.min_score,
         "duplicate_suppression_days": digest_settings.duplicate_suppression_days,
         "selected_arxiv_ids": [paper.arxiv_id for paper in selected_papers],
+        "selected_papers": [
+            {
+                "arxiv_id": paper.arxiv_id,
+                "title": paper.title,
+                "authors": _format_authors(paper.authors),
+                "categories": ", ".join(paper.categories) if paper.categories else "unknown",
+                "published_at": _format_datetime_readable(paper.published_date),
+                "reasons": ", ".join(paper.reasons) if paper.reasons else "",
+                "abstract_excerpt": paper.abstract_excerpt,
+            }
+            for paper in selected_papers
+        ],
         "output_path": str(output_path),
         "output_preview": digest_markdown[:800],
     }
@@ -458,7 +566,8 @@ def publish_daily_paper_digest(**context):
                     app_secret=settings.feishu.app_secret,
                     receive_id=settings.feishu.default_receive_id,
                     receive_id_type=settings.feishu.default_receive_id_type,
-                    message=digest_markdown,
+                    digest_result=digest_result,
+                    message_fallback=digest_markdown,
                 )
             )
             delivery_results.append({
