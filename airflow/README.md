@@ -65,6 +65,27 @@ The Airflow container is configured for cross-platform deployment:
 6. **OpenSearch Placeholders**: Prepare for Week 3+ search indexing
 7. **Daily Report**: Generate comprehensive processing statistics
 
+### Daily Digest DAG (`arxiv_paper_digest`)
+1. **Score Recent Papers**: Rank recently stored papers by recency and topic relevance
+2. **Generate Markdown Digest**: Render a compact daily paper briefing to disk
+3. **Telegram Push**: Send the digest to a configured Telegram chat when `TELEGRAM__CHAT_ID` is set
+
+### Digest Configuration
+- `TELEGRAM__ENABLED=true`
+- `TELEGRAM__BOT_TOKEN=...`
+- `TELEGRAM__CHAT_ID=...`
+  This is the destination chat or channel for the paper digest push.
+- `FEISHU__ENABLED=true`
+- `FEISHU__APP_ID=...`
+- `FEISHU__APP_SECRET=...`
+- `FEISHU__SUBSCRIPTION_MODE=long_connection`
+- `FEISHU__DEFAULT_RECEIVE_ID=...`
+  When configured, digest can be pushed to Feishu as well.
+- `DIGEST__MIN_SCORE=4.0`
+  Papers below this score are filtered out even if there are very few candidates.
+- `DIGEST__DUPLICATE_SUPPRESSION_DAYS=7`
+  Prevents the same arXiv ID from being pushed again within this window.
+
 ### Pipeline Performance
 - **Concurrent Processing**: 5 parallel downloads, 1 parsing operation (laptop-optimized)
 - **Rate Limiting**: Respects arXiv API guidelines (3-second delays)

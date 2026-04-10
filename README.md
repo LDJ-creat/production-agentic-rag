@@ -425,6 +425,9 @@ cp .env.example .env
 **Key Variables:**
 - `JINA_API_KEY` - Required for Week 4+ (hybrid search with embeddings)
 - `TELEGRAM__BOT_TOKEN` - Required for Week 7 (Telegram bot integration)
+- `TELEGRAM__CHAT_ID` - Destination chat/channel for paper digest pushes
+- `FEISHU__APP_ID` / `FEISHU__APP_SECRET` - Required to enable Feishu bot and digest delivery
+- `FEISHU__SUBSCRIPTION_MODE` - `long_connection` (local/no公网) or `webhook` (公网回调)
 - `LANGFUSE__PUBLIC_KEY` & `LANGFUSE__SECRET_KEY` - Optional for Week 6 (monitoring)
 
 **Complete Configuration:** See [.env.example](.env.example) for all available options and detailed documentation.

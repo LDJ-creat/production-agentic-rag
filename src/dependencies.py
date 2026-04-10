@@ -16,6 +16,7 @@ from src.db.interfaces.base import BaseDatabase
 from src.services.arxiv.client import ArxivClient
 from src.services.cache.client import CacheClient
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
+from src.services.feishu.bot import FeishuBot
 from src.services.langfuse.client import LangfuseTracer
 from src.services.ollama.client import OllamaClient
 from src.services.opensearch.client import OpenSearchClient
@@ -87,6 +88,11 @@ def get_telegram_service(request: Request) -> Optional[TelegramBot]:
     return getattr(request.app.state, "telegram_service", None)
 
 
+def get_feishu_service(request: Request) -> Optional[FeishuBot]:
+    """Get Feishu service from the request state."""
+    return getattr(request.app.state, "feishu_service", None)
+
+
 # Dependency annotations
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DatabaseDep = Annotated[BaseDatabase, Depends(get_database)]
@@ -99,6 +105,7 @@ OllamaDep = Annotated[OllamaClient, Depends(get_ollama_client)]
 LangfuseDep = Annotated[LangfuseTracer, Depends(get_langfuse_tracer)]
 CacheDep = Annotated[CacheClient | None, Depends(get_cache_client)]
 TelegramDep = Annotated[Optional[TelegramBot], Depends(get_telegram_service)]
+FeishuDep = Annotated[Optional[FeishuBot], Depends(get_feishu_service)]
 
 
 def get_agentic_rag_service(

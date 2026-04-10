@@ -6,11 +6,12 @@ import uvicorn
 from fastapi import FastAPI
 from src.config import get_settings
 from src.db.factory import make_database
-from src.routers import agentic_ask, hybrid_search, ping
+from src.routers import agentic_ask, feishu, hybrid_search, ping
 from src.routers.ask import ask_router, stream_router
 from src.services.arxiv.factory import make_arxiv_client
 from src.services.cache.factory import make_cache_client
 from src.services.embeddings.factory import make_embeddings_service
+from src.services.feishu.factory import make_feishu_service
 from src.services.langfuse.factory import make_langfuse_tracer
 from src.services.ollama.factory import make_ollama_client
 from src.services.opensearch.factory import make_opensearch_client
@@ -91,6 +92,25 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Telegram bot not configured - skipping initialization")
 
+    # Initialize Feishu bot (webhook callback mode)
+    feishu_service = make_feishu_service(
+        opensearch_client=app.state.opensearch_client,
+        embeddings_client=app.state.embeddings_service,
+        ollama_client=app.state.ollama_client,
+        cache_client=app.state.cache_client,
+        langfuse_tracer=app.state.langfuse_tracer,
+    )
+
+    if feishu_service:
+        app.state.feishu_service = feishu_service
+        try:
+            await feishu_service.start()
+            logger.info("Feishu bot initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Feishu bot: {e}")
+    else:
+        logger.info("Feishu bot not configured - skipping initialization")
+
     logger.info("API ready")
     yield
 
@@ -98,6 +118,10 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "telegram_service") and app.state.telegram_service:
         await app.state.telegram_service.stop()
         logger.info("Telegram bot stopped")
+
+    if hasattr(app.state, "feishu_service") and app.state.feishu_service:
+        await app.state.feishu_service.stop()
+        logger.info("Feishu bot stopped")
 
     database.teardown()
     logger.info("API shutdown complete")
@@ -116,6 +140,7 @@ app.include_router(hybrid_search.router, prefix="/api/v1")  # Search chunks with
 app.include_router(ask_router, prefix="/api/v1")  # RAG question answering with LLM
 app.include_router(stream_router, prefix="/api/v1")  # Streaming RAG responses
 app.include_router(agentic_ask.router)  # Agentic RAG with intelligent retrieval
+app.include_router(feishu.router, prefix="/api/v1")  # Feishu bot event callback
 
 
 if __name__ == "__main__":

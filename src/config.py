@@ -105,6 +105,37 @@ class OpenSearchSettings(BaseConfigSettings):
     hybrid_search_size_multiplier: int = 2  # Get k*multiplier for better recall
 
 
+class LLMAPISettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="LLM__API__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    format: Literal["openai_compatible", "anthropic"] = "openai_compatible"
+    base_url: str = ""
+    api_key: str = ""
+    anthropic_version: str = "2023-06-01"
+    max_tokens: int = 1024
+
+
+class LLMSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="LLM__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    provider: Literal["ollama", "api"] = "ollama"
+    default_model: str = "llama3.2:1b"
+    timeout: int = 300
+    api: LLMAPISettings = Field(default_factory=LLMAPISettings)
+
+
 class LangfuseSettings(BaseConfigSettings):
     model_config = SettingsConfigDict(
         env_file=[".env", str(ENV_FILE_PATH)],
@@ -157,6 +188,43 @@ class TelegramSettings(BaseConfigSettings):
 
     bot_token: str = ""
     enabled: bool = False
+    chat_id: str = ""
+
+
+class FeishuSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="FEISHU__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    enabled: bool = False
+    app_id: str = ""
+    app_secret: str = ""
+    verification_token: str = ""
+    encrypt_key: str = ""
+    subscription_mode: str = "long_connection"
+    event_callback_path: str = "/api/v1/feishu/events"
+    default_receive_id: str = ""
+    default_receive_id_type: str = "chat_id"
+
+
+class DigestSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="DIGEST__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    enabled: bool = True
+    min_score: float = 4.0
+    duplicate_suppression_days: int = 7
+    lookback_days: int = 2
+    max_papers: int = 8
 
 
 class Settings(BaseConfigSettings):
@@ -181,9 +249,12 @@ class Settings(BaseConfigSettings):
     pdf_parser: PDFParserSettings = Field(default_factory=PDFParserSettings)
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
     opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    feishu: FeishuSettings = Field(default_factory=FeishuSettings)
+    digest: DigestSettings = Field(default_factory=DigestSettings)
 
     @field_validator("postgres_database_url")
     @classmethod

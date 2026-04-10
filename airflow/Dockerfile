@@ -9,15 +9,15 @@ ENV CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints
 # Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential \
-        curl \
-        git \
-        libgl1 \
-        libglib2.0-0 \
-        libpq-dev \
-        poppler-utils \
-        tesseract-ocr \
-        && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    curl \
+    git \
+    libgl1 \
+    libglib2.0-0 \
+    libpq-dev \
+    poppler-utils \
+    tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create airflow user with UID/GID 50000 for cross-platform compatibility
 RUN groupadd -r -g 50000 airflow && useradd -r -u 50000 -g airflow -d ${AIRFLOW_HOME} -s /bin/bash airflow

@@ -52,6 +52,7 @@ def index_papers_hybrid(**context):
 
         fetch_results = None
         if ti:
+            # 获取本次任务中的paper数据
             fetch_results = ti.xcom_pull(task_ids="fetch_daily_papers", key="fetch_results")
 
         with database.get_session() as session:
