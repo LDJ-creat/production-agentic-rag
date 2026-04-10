@@ -8,7 +8,7 @@ COPY pyproject.toml uv.lock ./
 # UV_COMPILE_BYTECODE for generating .pyc files -> faster application startup.
 # UV_LINK_MODE=copy to silence warnings about not being able to use hard links
 # since the cache and sync target are on separate file systems.
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_HTTP_TIMEOUT=300
 
 # Install dependencies
 RUN python -m pip install --upgrade pip setuptools wheel || true
