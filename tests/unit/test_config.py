@@ -39,3 +39,14 @@ def test_settings_ollama_defaults():
     # In Docker environment, this should be ollama service host
     expected_host = "http://ollama:11434" if "OLLAMA_HOST" not in os.environ else settings.ollama_host
     assert settings.ollama_host in ["http://localhost:11434", "http://ollama:11434"]
+
+
+def test_feishu_history_defaults():
+    """Test Feishu conversation history defaults."""
+    settings = Settings()
+
+    assert settings.feishu.history_max_turns == 6
+    assert settings.feishu.history_ttl_hours == 24
+    assert settings.feishu.history_lock_timeout_seconds == 30
+    assert settings.feishu.history_lock_ttl_seconds == 60
+    assert settings.feishu.history_lock_poll_interval_seconds == 0.1

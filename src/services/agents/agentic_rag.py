@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Dict, List, Optional
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AnyMessage, HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -182,6 +182,7 @@ class AgenticRAGService:
         query: str,
         user_id: str = "api_user",
         model: Optional[str] = None,
+        history_messages: Optional[List[AnyMessage]] = None,
     ) -> dict:
         """Ask a question using agentic RAG.
 
@@ -206,13 +207,21 @@ class AgenticRAGService:
             raise ValueError("Query cannot be empty")
 
         try:
-            return await self._run_workflow(query, model_to_use, user_id, None, None)
+            return await self._run_workflow(query, model_to_use, user_id, None, None, history_messages=history_messages)
         except Exception as e:
             logger.error(f"Error in Agentic RAG execution: {str(e)}")
             logger.exception("Full traceback:")
             raise
 
-    async def _run_workflow(self, query: str, model_to_use: str, user_id: str, trace, callback_handler=None) -> dict:
+    async def _run_workflow(
+        self,
+        query: str,
+        model_to_use: str,
+        user_id: str,
+        trace,
+        callback_handler=None,
+        history_messages: Optional[List[AnyMessage]] = None,
+    ) -> dict:
         """Execute the workflow with the given trace context."""
         try:
             start_time = time.time()
@@ -221,7 +230,7 @@ class AgenticRAGService:
 
             # State initialization
             state_input = {
-                "messages": [HumanMessage(content=query)],
+                "messages": [*(history_messages or []), HumanMessage(content=query)],
                 "retrieval_attempts": 0,
                 "guardrail_result": None,
                 "routing_decision": None,
@@ -239,7 +248,7 @@ class AgenticRAGService:
                 "relevant_tool_artefacts": None,
                 "grading_results": [],
                 "metadata": {},
-                "original_query": None,
+                "original_query": query,
                 "rewritten_query": None,
             }
 

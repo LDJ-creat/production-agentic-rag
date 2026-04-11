@@ -41,5 +41,10 @@ def make_feishu_service(
         subscription_mode=feishu_settings.subscription_mode,
         app_id=feishu_settings.app_id,
         app_secret=feishu_settings.app_secret,
+        history_max_turns=feishu_settings.history_max_turns,
+        history_ttl_hours=feishu_settings.history_ttl_hours,
+        history_lock_timeout_seconds=feishu_settings.history_lock_timeout_seconds,
+        history_lock_ttl_seconds=feishu_settings.history_lock_ttl_seconds,
+        history_lock_poll_interval_seconds=feishu_settings.history_lock_poll_interval_seconds,
     )
     return bot

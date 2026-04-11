@@ -209,6 +209,11 @@ class FeishuSettings(BaseConfigSettings):
     event_callback_path: str = "/api/v1/feishu/events"
     default_receive_id: str = ""
     default_receive_id_type: str = "chat_id"
+    history_max_turns: int = 6
+    history_ttl_hours: int = 24
+    history_lock_timeout_seconds: int = 30
+    history_lock_ttl_seconds: int = 60
+    history_lock_poll_interval_seconds: float = 0.1
 
 
 class DigestSettings(BaseConfigSettings):
