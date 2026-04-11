@@ -9,7 +9,7 @@ class AskRequest(BaseModel):
     query: str = Field(..., description="User's question", min_length=1, max_length=1000)
     top_k: int = Field(3, description="Number of top chunks to retrieve", ge=1, le=10)
     use_hybrid: bool = Field(True, description="Use hybrid search (BM25 + vector)")
-    model: str = Field("llama3.2:1b", description="Ollama model to use for generation")
+    model: str = Field("llama3.2:1b", description="LLM model name to use for generation")
     categories: Optional[List[str]] = Field(None, description="Filter by arXiv categories")
 
     class Config:
@@ -50,6 +50,7 @@ class AgenticAskResponse(AskResponse):
 
     reasoning_steps: List[str] = Field(..., description="Agent's decision-making steps")
     retrieval_attempts: int = Field(..., description="Number of document retrieval attempts")
+    rewritten_query: Optional[str] = Field(None, description="Rewritten query used by the agent, if any")
     trace_id: Optional[str] = Field(None, description="Langfuse trace ID for feedback and debugging")
 
     class Config:
@@ -66,6 +67,7 @@ class AgenticAskResponse(AskResponse):
                     "Generated answer from relevant documents",
                 ],
                 "retrieval_attempts": 1,
+                "rewritten_query": "What are transformer architectures in deep learning?",
                 "trace_id": "abc123-def456-ghi789",
             }
         }

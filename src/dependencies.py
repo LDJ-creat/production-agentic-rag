@@ -18,7 +18,7 @@ from src.services.cache.client import CacheClient
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.feishu.bot import FeishuBot
 from src.services.langfuse.client import LangfuseTracer
-from src.services.ollama.client import OllamaClient
+from src.services.llm.base import BaseLLMClient
 from src.services.opensearch.client import OpenSearchClient
 from src.services.pdf_parser.parser import PDFParserService
 from src.services.telegram.bot import TelegramBot
@@ -68,9 +68,14 @@ def get_embeddings_service(request: Request) -> JinaEmbeddingsClient:
     return request.app.state.embeddings_service
 
 
-def get_ollama_client(request: Request) -> OllamaClient:
-    """Get Ollama client from the request state."""
-    return request.app.state.ollama_client
+def get_llm_client(request: Request) -> BaseLLMClient:
+    """Get unified LLM client from the request state."""
+    return getattr(request.app.state, "llm_client", request.app.state.ollama_client)
+
+
+def get_ollama_client(request: Request) -> BaseLLMClient:
+    """Backward-compatible alias for existing Ollama dependency usage."""
+    return get_llm_client(request)
 
 
 def get_langfuse_tracer(request: Request) -> LangfuseTracer:
@@ -101,7 +106,8 @@ OpenSearchDep = Annotated[OpenSearchClient, Depends(get_opensearch_client)]
 ArxivDep = Annotated[ArxivClient, Depends(get_arxiv_client)]
 PDFParserDep = Annotated[PDFParserService, Depends(get_pdf_parser)]
 EmbeddingsDep = Annotated[JinaEmbeddingsClient, Depends(get_embeddings_service)]
-OllamaDep = Annotated[OllamaClient, Depends(get_ollama_client)]
+LLMDep = Annotated[BaseLLMClient, Depends(get_llm_client)]
+OllamaDep = Annotated[BaseLLMClient, Depends(get_ollama_client)]
 LangfuseDep = Annotated[LangfuseTracer, Depends(get_langfuse_tracer)]
 CacheDep = Annotated[CacheClient | None, Depends(get_cache_client)]
 TelegramDep = Annotated[Optional[TelegramBot], Depends(get_telegram_service)]
@@ -109,10 +115,10 @@ FeishuDep = Annotated[Optional[FeishuBot], Depends(get_feishu_service)]
 
 
 def get_agentic_rag_service(
-    opensearch: OpenSearchDep,
-    ollama: OllamaDep,
-    embeddings: EmbeddingsDep,
-    langfuse: LangfuseDep,
+    opensearch: Annotated[OpenSearchClient, Depends(get_opensearch_client)],
+    ollama: Annotated[BaseLLMClient, Depends(get_llm_client)],
+    embeddings: Annotated[JinaEmbeddingsClient, Depends(get_embeddings_service)],
+    langfuse: Annotated[LangfuseTracer, Depends(get_langfuse_tracer)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AgenticRAGService:
     """Get agentic RAG service."""
@@ -121,7 +127,7 @@ def get_agentic_rag_service(
         ollama_client=ollama,
         embeddings_client=embeddings,
         langfuse_tracer=langfuse,
-        model=settings.ollama_model,
+        model=settings.llm.default_model,
     )
 
 

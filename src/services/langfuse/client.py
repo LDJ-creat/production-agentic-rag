@@ -374,6 +374,7 @@ class LangfuseTracer:
         metadata: Optional[Dict[str, Any]] = None,
         level: Optional[str] = None,
         status_message: Optional[str] = None,
+        end: bool = True,
     ):
         """
         Update a span with output and metadata.
@@ -401,6 +402,25 @@ class LangfuseTracer:
 
             if update_data:
                 span.update(**update_data)
-            span.end()
+            if end:
+                span.end()
         except Exception as e:
             logger.error(f"Error updating span: {e}")
+
+    def end_span(
+        self,
+        span,
+        output: Optional[Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        level: Optional[str] = None,
+        status_message: Optional[str] = None,
+    ):
+        """Compatibility helper for callers expecting end_span()."""
+        self.update_span(
+            span=span,
+            output=output,
+            metadata=metadata,
+            level=level,
+            status_message=status_message,
+            end=True,
+        )

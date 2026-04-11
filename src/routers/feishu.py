@@ -13,8 +13,8 @@ router = APIRouter(tags=["feishu"])
 
 @router.post("/feishu/events")
 async def feishu_event_callback(
-    payload: Dict[str, Any] = Body(...),
     feishu_service: FeishuDep,
+    payload: Dict[str, Any] = Body(...),
 ):
     """Feishu event callback endpoint (URL verification + message events)."""
     if not feishu_service:

@@ -21,11 +21,14 @@ dependencies = [
     "langfuse>=3.0.0",
     "redis>=6.4.0",
     "python-telegram-bot>=21.0,<22.0",
+    "lark-oapi>=1.4.12",
     "langgraph>=0.2.0",
     "langchain>=0.3.0",
     "langchain-core>=0.3.0",
     "langchain-community>=0.3.0",
     "langchain-ollama>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langchain-anthropic>=0.3.0",
     "opencv-python<4.13",
     "torch<2.11",
 ]
@@ -44,7 +47,7 @@ dev = [
     "pytest-aiohttp>=1.1.0",
     "pytest-cov>=6.1.1",
     "pytest-dotenv>=0.5.2",
-    "pytest-env>=1.1.5",
+    "pytest-asyncio>=0.24.0",
     "pytest-mock>=3.14.0",
     "ruff>=0.11.5",
     "testcontainers>=4.10.0",
@@ -63,6 +66,7 @@ lint.select = [
 ]
 
 [tool.pytest.ini_options]
+addopts = "-p no:pytest_env"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 env_files = ".env.test"

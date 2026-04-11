@@ -6,18 +6,20 @@ import httpx
 from src.config import Settings
 from src.exceptions import OllamaConnectionError, OllamaException, OllamaTimeoutError
 from src.schemas.ollama import RAGResponse
+from src.services.llm.base import BaseLLMClient
 from src.services.ollama.prompts import RAGPromptBuilder, ResponseParser
 
 logger = logging.getLogger(__name__)
 
 
-class OllamaClient:
+class OllamaClient(BaseLLMClient):
     """Client for interacting with Ollama local LLM service."""
 
     def __init__(self, settings: Settings):
         """Initialize Ollama client with settings."""
         self.base_url = settings.ollama_host
-        self.timeout = httpx.Timeout(float(settings.ollama_timeout))
+        timeout_seconds = float(settings.llm.timeout if getattr(settings, "llm", None) else settings.ollama_timeout)
+        self.timeout = httpx.Timeout(timeout_seconds)
         self.prompt_builder = RAGPromptBuilder()
         self.response_parser = ResponseParser()
 
@@ -304,3 +306,17 @@ class OllamaClient:
         except Exception as e:
             logger.error(f"Error generating streaming RAG answer: {e}")
             raise OllamaException(f"Failed to generate streaming RAG answer: {e}")
+
+    def get_langchain_model(self, model: str, temperature: float = 0.0):
+        """Get ChatOllama model for LangChain/LangGraph usage."""
+        from langchain_ollama import ChatOllama
+
+        return ChatOllama(
+            model=model,
+            base_url=self.base_url,
+            temperature=temperature,
+        )
+
+    def create_llm(self, model: str, temperature: float = 0.0):
+        """Backward-compatible alias used in older tests."""
+        return self.get_langchain_model(model=model, temperature=temperature)

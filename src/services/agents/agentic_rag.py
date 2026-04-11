@@ -9,7 +9,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.langfuse.client import LangfuseTracer
-from src.services.ollama.client import OllamaClient
+from src.services.llm.base import BaseLLMClient
 from src.services.opensearch.client import OpenSearchClient
 
 from .config import GraphConfig
@@ -42,7 +42,7 @@ class AgenticRAGService:
     def __init__(
         self,
         opensearch_client: OpenSearchClient,
-        ollama_client: OllamaClient,
+        ollama_client: BaseLLMClient,
         embeddings_client: JinaEmbeddingsClient,
         langfuse_tracer: Optional[LangfuseTracer] = None,
         graph_config: Optional[GraphConfig] = None,

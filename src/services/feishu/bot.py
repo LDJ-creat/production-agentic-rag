@@ -23,6 +23,7 @@ class FeishuBot:
         embeddings_client,
         ollama_client,
         cache_client=None,
+        default_model: str = "llama3.2:1b",
         verification_token: str = "",
         encrypt_key: str = "",
         subscription_mode: str = "long_connection",
@@ -34,6 +35,7 @@ class FeishuBot:
         self.embeddings = embeddings_client
         self.ollama = ollama_client
         self.cache = cache_client
+        self.default_model = default_model
         self.verification_token = verification_token
         self.encrypt_key = encrypt_key
         self.subscription_mode = subscription_mode
@@ -255,7 +257,7 @@ class FeishuBot:
             await self._respond_text(message_id=message_id, chat_id=chat_id, text=f"检索失败：{e}")
 
     async def _handle_question(self, query: str, message_id: str, chat_id: str, sender_open_id: str) -> None:
-        ask_request = AskRequest(query=query, top_k=3, use_hybrid=True)
+        ask_request = AskRequest(query=query, top_k=3, use_hybrid=True, model=self.default_model)
 
         try:
             if self.cache:
@@ -303,7 +305,7 @@ class FeishuBot:
                 return
 
             prompt = RAGPromptBuilder().create_rag_prompt(query=query, chunks=chunks)
-            llm_response = await self.ollama.generate(model="llama3.2:1b", prompt=prompt, stream=False)
+            llm_response = await self.ollama.generate(model=ask_request.model, prompt=prompt, stream=False)
             answer = llm_response.get("response", "") if llm_response else ""
             formatted = self._format_answer(answer, sources)
 
