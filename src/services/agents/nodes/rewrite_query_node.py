@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from ..context import Context
 from ..prompts import REWRITE_PROMPT
 from ..state import AgentState
+from .llm_utils import generate_structured_with_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +70,6 @@ async def ainvoke_rewrite_query_step(
 
     # Use LLM to rewrite the query intelligently
     try:
-        # Create structured LLM for query rewriting
-        llm = runtime.context.ollama_client.get_langchain_model(
-            model=runtime.context.model_name,
-            temperature=0.3,  # Lower temperature for more focused rewriting
-        )
-        structured_llm = llm.with_structured_output(QueryRewriteOutput)
-
         # Format prompt with original question
         prompt = REWRITE_PROMPT.format(question=original_question)
 
@@ -83,7 +77,12 @@ async def ainvoke_rewrite_query_step(
         llm_start = time.time()
 
         # Get rewritten query from LLM
-        result: QueryRewriteOutput = await structured_llm.ainvoke(prompt)
+        result: QueryRewriteOutput = await generate_structured_with_fallback(
+            runtime.context,
+            prompt,
+            QueryRewriteOutput,
+            temperature=0.3,
+        )
 
         # Validate LLM output
         if not result or not result.rewritten_query:
@@ -130,4 +129,5 @@ async def ainvoke_rewrite_query_step(
     return {
         "messages": [HumanMessage(content=rewritten_query)],
         "rewritten_query": rewritten_query,
+        "active_query": rewritten_query,
     }

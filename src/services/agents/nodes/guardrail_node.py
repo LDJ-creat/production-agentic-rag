@@ -8,6 +8,7 @@ from ..context import Context
 from ..models import GuardrailScoring
 from ..prompts import GUARDRAIL_PROMPT
 from ..state import AgentState
+from .llm_utils import generate_structured_with_fallback
 from .utils import get_latest_query
 
 logger = logging.getLogger(__name__)
@@ -80,18 +81,14 @@ async def ainvoke_guardrail_step(
         # Create guardrail prompt from template
         guardrail_prompt = GUARDRAIL_PROMPT.format(question=query)
 
-        # Get LLM from runtime context
-        llm = runtime.context.ollama_client.get_langchain_model(
-            model=runtime.context.model_name,
-            temperature=0.0,
-        )
-
-        # Create structured output LLM for guardrail scoring
-        structured_llm = llm.with_structured_output(GuardrailScoring)
-
         # Invoke LLM for guardrail evaluation
         logger.info("Invoking LLM for guardrail validation")
-        response = await structured_llm.ainvoke(guardrail_prompt)
+        response = await generate_structured_with_fallback(
+            runtime.context,
+            guardrail_prompt,
+            GuardrailScoring,
+            temperature=0.0,
+        )
 
         logger.info(f"Guardrail result - Score: {response.score}, Reason: {response.reason}")
 

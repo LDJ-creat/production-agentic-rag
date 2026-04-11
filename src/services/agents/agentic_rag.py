@@ -3,9 +3,8 @@ import time
 from typing import Dict, List, Optional
 
 from langchain_core.messages import HumanMessage
-from langfuse.langchain import CallbackHandler
 from langgraph.graph import END, START, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode
 
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.langfuse.client import LangfuseTracer
@@ -15,13 +14,18 @@ from src.services.opensearch.client import OpenSearchClient
 from .config import GraphConfig
 from .context import Context
 from .nodes import (
+    ainvoke_direct_response_step,
+    ainvoke_evidence_check_step,
     ainvoke_generate_answer_step,
     ainvoke_grade_documents_step,
-    ainvoke_guardrail_step,
+    ainvoke_intent_router_step,
     ainvoke_out_of_scope_step,
     ainvoke_retrieve_step,
+    ainvoke_retrieval_planner_step,
     ainvoke_rewrite_query_step,
-    continue_after_guardrail,
+    continue_after_evidence_check,
+    continue_after_intent_routing,
+    continue_after_retrieve,
 )
 from .state import AgentState
 from .tools import create_retriever_tool
@@ -66,7 +70,6 @@ class AgenticRAGService:
         logger.info(f"  Top-k: {self.graph_config.top_k}")
         logger.info(f"  Hybrid search: {self.graph_config.use_hybrid}")
         logger.info(f"  Max retrieval attempts: {self.graph_config.max_retrieval_attempts}")
-        logger.info(f"  Guardrail threshold: {self.graph_config.guardrail_threshold}")
 
         # Build graph once (no runnables needed!)
         self.graph = self._build_graph()
@@ -96,53 +99,68 @@ class AgenticRAGService:
 
         # Add nodes (just function references - no closures needed!)
         logger.info("Adding nodes to workflow graph")
-        workflow.add_node("guardrail", ainvoke_guardrail_step)
+        workflow.add_node("intent_router", ainvoke_intent_router_step)
+        workflow.add_node("direct_response", ainvoke_direct_response_step)
         workflow.add_node("out_of_scope", ainvoke_out_of_scope_step)
+        workflow.add_node("retrieval_planner", ainvoke_retrieval_planner_step)
         workflow.add_node("retrieve", ainvoke_retrieve_step)
         workflow.add_node("tool_retrieve", ToolNode(tools))
         workflow.add_node("grade_documents", ainvoke_grade_documents_step)
+        workflow.add_node("evidence_check", ainvoke_evidence_check_step)
         workflow.add_node("rewrite_query", ainvoke_rewrite_query_step)
         workflow.add_node("generate_answer", ainvoke_generate_answer_step)
 
         # Add edges
         logger.info("Configuring graph edges and routing logic")
 
-        # Start → guardrail validation
-        workflow.add_edge(START, "guardrail")
+        # Start → intent routing
+        workflow.add_edge(START, "intent_router")
 
-        # Guardrail → route based on score
+        # Intent routing -> direct response, retrieval flow, or out-of-scope
         workflow.add_conditional_edges(
-            "guardrail",
-            continue_after_guardrail,
+            "intent_router",
+            continue_after_intent_routing,
             {
-                "continue": "retrieve",
+                "direct_response": "direct_response",
+                "retrieve": "retrieval_planner",
                 "out_of_scope": "out_of_scope",
             },
         )
 
+        # Direct response -> END
+        workflow.add_edge("direct_response", END)
+
         # Out of scope → END
         workflow.add_edge("out_of_scope", END)
+
+        # Plan retrieval strategy before first retrieval call
+        workflow.add_edge("retrieval_planner", "retrieve")
 
         # Retrieve node creates tool call
         workflow.add_conditional_edges(
             "retrieve",
-            tools_condition,
+            continue_after_retrieve,
             {
-                "tools": "tool_retrieve",
-                END: END,
+                "tool_retrieve": "tool_retrieve",
+                "generate_answer": "generate_answer",
+                "end": END,
             },
         )
 
         # After tool retrieval → grade documents
         workflow.add_edge("tool_retrieve", "grade_documents")
 
-        # After grading → route based on relevance
+        # After grading -> evidence sufficiency check
+        workflow.add_edge("grade_documents", "evidence_check")
+
+        # After evidence check -> retrieve again, rewrite, or generate
         workflow.add_conditional_edges(
-            "grade_documents",
-            lambda state: state.get("routing_decision", "generate_answer"),
+            "evidence_check",
+            continue_after_evidence_check,
             {
-                "generate_answer": "generate_answer",
+                "retrieve": "retrieve",
                 "rewrite_query": "rewrite_query",
+                "generate_answer": "generate_answer",
             },
         )
 
@@ -187,46 +205,14 @@ class AgenticRAGService:
             logger.error("Empty query received")
             raise ValueError("Query cannot be empty")
 
-        # Create trace if Langfuse is enabled (v3 SDK)
-        trace = None
-        if self.langfuse_tracer and self.langfuse_tracer.client:
-            logger.info("Creating Langfuse trace (v3 SDK)")
-            metadata = {
-                "env": self.graph_config.settings.environment,
-                "service": "agentic_rag",
-                "top_k": self.graph_config.top_k,
-                "use_hybrid": self.graph_config.use_hybrid,
-                "model": model_to_use,
-            }
-            # V3 SDK: Use start_as_current_span - will be used with 'with' statement
-            trace = self.langfuse_tracer.client.start_as_current_span(
-                name="agentic_rag_request",
-            )
-
-        # Use proper context manager pattern
-        async def _execute_with_trace():
-            """Execute the workflow with or without tracing context."""
-            if trace is not None:
-                with trace as trace_obj:
-                    trace_obj.update(
-                        input={"query": query},
-                        metadata=metadata,
-                        user_id=user_id,
-                        session_id=f"session_{user_id}",
-                    )
-                    logger.debug(f"Trace created: {trace_obj}")
-                    return await self._run_workflow(query, model_to_use, user_id, trace_obj)
-            else:
-                return await self._run_workflow(query, model_to_use, user_id, None)
-
         try:
-            return await _execute_with_trace()
+            return await self._run_workflow(query, model_to_use, user_id, None, None)
         except Exception as e:
             logger.error(f"Error in Agentic RAG execution: {str(e)}")
             logger.exception("Full traceback:")
             raise
 
-    async def _run_workflow(self, query: str, model_to_use: str, user_id: str, trace) -> dict:
+    async def _run_workflow(self, query: str, model_to_use: str, user_id: str, trace, callback_handler=None) -> dict:
         """Execute the workflow with the given trace context."""
         try:
             start_time = time.time()
@@ -239,6 +225,15 @@ class AgenticRAGService:
                 "retrieval_attempts": 0,
                 "guardrail_result": None,
                 "routing_decision": None,
+                "intent_route": None,
+                "intent_reason": None,
+                "retrieval_plan_reason": None,
+                "planned_queries": [],
+                "attempted_queries": [],
+                "next_query_index": 0,
+                "active_query": None,
+                "evidence_reason": None,
+                "followup_query": None,
                 "sources": None,
                 "relevant_sources": [],
                 "relevant_tool_artefacts": None,
@@ -266,18 +261,7 @@ class AgenticRAGService:
             # Create config with CallbackHandler if Langfuse is enabled (v3 SDK)
             config = {"thread_id": f"user_{user_id}_session_{int(time.time())}"}
 
-            # Add CallbackHandler for automatic LLM tracing
-            # IMPORTANT: CallbackHandler automatically inherits the current span context
-            # Since we're inside start_as_current_span, it will be linked automatically
-            if self.langfuse_tracer and trace:
-                try:
-                    # V3 SDK: CallbackHandler() automatically uses current trace context
-                    # No need to pass trace explicitly - it's handled by context propagation
-                    callback_handler = CallbackHandler()
-                    config["callbacks"] = [callback_handler]
-                    logger.info("✓ CallbackHandler added (will auto-link to current trace)")
-                except Exception as e:
-                    logger.warning(f"Failed to create CallbackHandler: {e}")
+            # CallbackHandler is intentionally disabled to avoid optional runtime deps.
 
             result = await self.graph.ainvoke(
                 state_input,
@@ -295,7 +279,7 @@ class AgenticRAGService:
             reasoning_steps = self._extract_reasoning_steps(result)
 
             # Update trace (cleanup handled by context manager)
-            if trace:
+            if trace and hasattr(trace, "update"):
                 trace.update(
                     output={
                         "answer": answer,
@@ -305,8 +289,11 @@ class AgenticRAGService:
                         "execution_time": execution_time,
                     }
                 )
-                trace.end()
+                if hasattr(trace, "end"):
+                    trace.end()
                 self.langfuse_tracer.flush()
+
+            trace_id = self.langfuse_tracer.get_trace_id(trace) if self.langfuse_tracer else None
 
             logger.info("=" * 80)
             logger.info("Agentic RAG Request Completed Successfully")
@@ -325,6 +312,10 @@ class AgenticRAGService:
                 "rewritten_query": result.get("rewritten_query"),
                 "execution_time": execution_time,
                 "guardrail_score": result.get("guardrail_result").score if result.get("guardrail_result") else None,
+                "trace_id": trace_id,
+                "intent_route": result.get("intent_route"),
+                "out_of_scope": result.get("intent_route") == "out_of_scope",
+                "max_retrieval_reached": retrieval_attempts >= self.graph_config.max_retrieval_attempts,
             }
 
         except Exception as e:
@@ -332,9 +323,10 @@ class AgenticRAGService:
             logger.exception("Full traceback:")
 
             # Update trace with error (cleanup handled by context manager)
-            if trace:
+            if trace and hasattr(trace, "update"):
                 trace.update(output={"error": str(e)}, level="ERROR")
-                trace.end()
+                if hasattr(trace, "end"):
+                    trace.end()
                 self.langfuse_tracer.flush()
 
             raise
@@ -371,6 +363,12 @@ class AgenticRAGService:
         if guardrail_result:
             steps.append(f"Validated query scope (score: {guardrail_result.score}/100)")
 
+        if result.get("intent_route"):
+            steps.append(f"Intent route: {result.get('intent_route')}")
+
+        if result.get("retrieval_plan_reason"):
+            steps.append("Planned retrieval strategy")
+
         if retrieval_attempts > 0:
             steps.append(f"Retrieved documents ({retrieval_attempts} attempt(s))")
 
@@ -381,7 +379,16 @@ class AgenticRAGService:
         if result.get("rewritten_query"):
             steps.append("Rewritten query for better results")
 
-        steps.append("Generated answer from context")
+        if result.get("evidence_reason"):
+            steps.append("Evaluated evidence sufficiency")
+
+        intent_route = result.get("intent_route")
+        if intent_route == "direct_response":
+            steps.append("Generated direct response")
+        elif intent_route == "out_of_scope":
+            steps.append("Returned out-of-scope guidance")
+        else:
+            steps.append("Generated answer from context")
 
         return steps
 

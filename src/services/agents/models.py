@@ -95,6 +95,33 @@ class GradingResult(BaseModel):
     reasoning: str = Field(default="", description="Grading reasoning")
 
 
+class IntentRouteResult(BaseModel):
+    """Intent routing result for deciding conversation path."""
+
+    route: Literal["direct_response", "retrieve", "out_of_scope"] = Field(
+        description="Route selected by intent router"
+    )
+    reason: str = Field(default="", description="Reason for selected route")
+
+
+class RetrievalPlanResult(BaseModel):
+    """Retrieval planning output for rewrite/decompose decisions."""
+
+    should_rewrite: bool = Field(default=False, description="Whether query should be rewritten")
+    rewritten_query: str = Field(default="", description="Rewritten query if applicable")
+    should_decompose: bool = Field(default=False, description="Whether query should be decomposed")
+    sub_queries: List[str] = Field(default_factory=list, description="Sub-queries for multi-step retrieval")
+    reason: str = Field(default="", description="Reason for retrieval planning decision")
+
+
+class EvidenceCheckResult(BaseModel):
+    """Evidence sufficiency decision after retrieval."""
+
+    need_more_retrieval: bool = Field(default=False, description="Whether more retrieval is required")
+    reason: str = Field(default="", description="Reason for sufficiency decision")
+    followup_query: str = Field(default="", description="Optional follow-up query for next retrieval round")
+
+
 class ReasoningStep(BaseModel):
     """A reasoning step in the agent workflow.
 

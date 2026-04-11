@@ -22,7 +22,7 @@ class GraphConfig(BaseModel):
     :param settings: Application settings instance for environment and service config
     """
 
-    max_retrieval_attempts: int = 2
+    max_retrieval_attempts: int = 4
     guardrail_threshold: int = 60
     model: str = "llama3.2:1b"
     temperature: float = 0.0

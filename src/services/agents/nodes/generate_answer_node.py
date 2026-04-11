@@ -8,6 +8,7 @@ from langgraph.runtime import Runtime
 from ..context import Context
 from ..prompts import GENERATE_ANSWER_PROMPT
 from ..state import AgentState
+from .llm_utils import generate_text_with_fallback
 from .utils import get_latest_context, get_latest_query
 
 logger = logging.getLogger(__name__)
@@ -79,18 +80,15 @@ async def ainvoke_generate_answer_step(
             question=question,
         )
 
-        # Get LLM from runtime context
-        llm = runtime.context.ollama_client.get_langchain_model(
-            model=runtime.context.model_name,
-            temperature=runtime.context.temperature,
-        )
-
         # Invoke LLM for answer generation
         logger.info("Invoking LLM for answer generation")
-        response = await llm.ainvoke(answer_prompt)
-
-        # Extract content from response
-        answer = response.content if hasattr(response, 'content') else str(response)
+        answer = await generate_text_with_fallback(
+            runtime.context,
+            answer_prompt,
+            temperature=runtime.context.temperature,
+        )
+        if not answer:
+            raise ValueError("Empty answer generated")
         logger.info(f"Generated answer of length: {len(answer)} characters")
 
         # Update span with successful result

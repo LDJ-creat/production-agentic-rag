@@ -8,6 +8,7 @@ from ..context import Context
 from ..models import GradeDocuments, GradingResult
 from ..prompts import GRADE_DOCUMENTS_PROMPT
 from ..state import AgentState
+from .llm_utils import generate_structured_with_fallback
 from .utils import get_latest_context, get_latest_query
 
 logger = logging.getLogger(__name__)
@@ -88,18 +89,14 @@ async def ainvoke_grade_documents_step(
             question=question,
         )
 
-        # Get LLM from runtime context
-        llm = runtime.context.ollama_client.get_langchain_model(
-            model=runtime.context.model_name,
-            temperature=0.0,
-        )
-
-        # Create structured output LLM for grading
-        structured_llm = llm.with_structured_output(GradeDocuments)
-
         # Invoke LLM grading
         logger.info("Invoking LLM for document grading")
-        grading_response = await structured_llm.ainvoke(grading_prompt)
+        grading_response = await generate_structured_with_fallback(
+            runtime.context,
+            grading_prompt,
+            GradeDocuments,
+            temperature=0.0,
+        )
 
         is_relevant = grading_response.binary_score == "yes"
         score = 1.0 if is_relevant else 0.0

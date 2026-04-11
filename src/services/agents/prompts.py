@@ -115,3 +115,77 @@ Instructions:
 - Do NOT make up information or cite papers not in the retrieved context
 
 Answer:"""
+
+
+INTENT_ROUTER_PROMPT = """You are an intent router for an agentic RAG assistant focused on arXiv CS/AI/ML papers.
+
+User Question: {question}
+
+Classify the question into exactly one route:
+- direct_response: Greeting, small talk, conversational, or general non-research request that should receive a direct assistant reply.
+- retrieve: Research-oriented CS/AI/ML question that requires paper retrieval.
+- out_of_scope: Harmful, policy-blocked, or clearly unsupported domain request that should be declined.
+
+Important:
+- "hello", "hi", "thanks", "how are you" -> direct_response
+- "What are transformer architectures?" -> retrieve
+- If uncertain between direct_response and retrieve, choose retrieve.
+
+Respond in JSON with:
+- route: one of [direct_response, retrieve, out_of_scope]
+- reason: short reason"""
+
+
+RETRIEVAL_PLANNER_PROMPT = """You are a retrieval planner for CS/AI/ML paper search.
+
+User Question: {question}
+Previously attempted retrieval queries:
+{attempted_queries}
+
+Decide whether to rewrite or decompose the query for better retrieval.
+
+Rules:
+- Use rewrite when query is vague or overly broad.
+- Use decomposition when query contains multiple distinct sub-questions.
+- Keep sub-queries concise and searchable.
+- Return at most 3 sub-queries.
+- Do not repeat or lightly paraphrase previously attempted queries.
+
+Respond in JSON with fields:
+- should_rewrite: boolean
+- rewritten_query: string (empty if not needed)
+- should_decompose: boolean
+- sub_queries: array of strings
+- reason: short reason"""
+
+
+DIRECT_CHAT_PROMPT = """You are a friendly AI assistant.
+
+User message: {question}
+
+Provide a concise, natural conversational reply.
+If appropriate, mention you can also help with CS/AI/ML arXiv paper questions.
+Do not fabricate citations.
+
+Answer:"""
+
+
+EVIDENCE_CHECK_PROMPT = """You are an evidence sufficiency evaluator for a RAG assistant.
+
+Original Question: {question}
+Previously attempted retrieval queries:
+{attempted_queries}
+Retrieved Context:
+{context}
+
+Determine if current evidence is enough to produce a high-quality answer.
+
+Respond in JSON with:
+- need_more_retrieval: boolean
+- reason: short reason
+- followup_query: string (empty if not needed; if needed, provide a concise follow-up retrieval query)
+
+Guidelines:
+- need_more_retrieval=true when context is missing key parts of the question.
+- need_more_retrieval=false when context is sufficient to answer with confidence.
+- If proposing followup_query, avoid repeating or lightly paraphrasing attempted queries."""

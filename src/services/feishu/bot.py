@@ -6,9 +6,8 @@ import re
 import threading
 from typing import Any, Dict, Optional
 
-from src.schemas.api.ask import AskRequest
+from src.services.agents.factory import make_agentic_rag_service
 from src.services.feishu.client import FeishuClient
-from src.services.ollama.prompts import RAGPromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,7 @@ class FeishuBot:
         embeddings_client,
         ollama_client,
         cache_client=None,
+        langfuse_tracer=None,
         default_model: str = "llama3.2:1b",
         verification_token: str = "",
         encrypt_key: str = "",
@@ -46,6 +46,15 @@ class FeishuBot:
         self._ws_client = None
         self._ws_thread: Optional[threading.Thread] = None
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
+        self.agentic_rag = make_agentic_rag_service(
+            opensearch_client=self.opensearch,
+            ollama_client=self.ollama,
+            embeddings_client=self.embeddings,
+            langfuse_tracer=langfuse_tracer,
+            model=self.default_model,
+            top_k=3,
+            use_hybrid=True,
+        )
 
     async def start(self) -> None:
         """Start Feishu bot in long_connection or webhook mode."""
@@ -257,62 +266,54 @@ class FeishuBot:
             await self._respond_text(message_id=message_id, chat_id=chat_id, text=f"检索失败：{e}")
 
     async def _handle_question(self, query: str, message_id: str, chat_id: str, sender_open_id: str) -> None:
-        ask_request = AskRequest(query=query, top_k=3, use_hybrid=True, model=self.default_model)
-
         try:
-            if self.cache:
-                try:
-                    cached = await self.cache.find_cached_response(ask_request)
-                    if cached:
-                        await self._respond_text(
-                            message_id=message_id,
-                            chat_id=chat_id,
-                            text=self._format_answer(cached.answer, cached.sources),
-                        )
-                        return
-                except Exception as e:
-                    logger.warning("Feishu cache lookup failed: %s", e)
-
-            query_embedding = None
-            if ask_request.use_hybrid:
-                try:
-                    query_embedding = await self.embeddings.embed_query(query)
-                except Exception as e:
-                    logger.warning("Feishu embedding generation failed, fallback BM25: %s", e)
-
-            search_results = self.opensearch.search_unified(
+            result = await self.agentic_rag.ask(
                 query=query,
-                query_embedding=query_embedding,
-                size=ask_request.top_k,
-                use_hybrid=ask_request.use_hybrid and query_embedding is not None,
+                user_id=sender_open_id or "feishu_user",
+                model=self.default_model,
             )
 
-            chunks = []
-            sources = []
-            seen_sources = set()
-            for hit in search_results.get("hits", []):
-                arxiv_id = hit.get("arxiv_id", "")
-                chunks.append({"arxiv_id": arxiv_id, "chunk_text": hit.get("chunk_text", hit.get("abstract", ""))})
-                if arxiv_id:
-                    clean_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
-                    src = f"https://arxiv.org/abs/{clean_id}"
-                    if src not in seen_sources:
-                        seen_sources.add(src)
-                        sources.append(src)
+            intent_route = result.get("intent_route") if isinstance(result, dict) else None
+            retrieval_attempts = result.get("retrieval_attempts", 0) if isinstance(result, dict) else 0
+            out_of_scope = bool(result.get("out_of_scope", False)) if isinstance(result, dict) else False
+            max_retrieval_reached = bool(result.get("max_retrieval_reached", False)) if isinstance(result, dict) else False
+            logger.info(
+                "Feishu agentic routing message_id=%s user=%s intent_route=%s retrieval_attempts=%s out_of_scope=%s max_retrieval_reached=%s",
+                message_id,
+                sender_open_id or "unknown",
+                intent_route or "unknown",
+                retrieval_attempts,
+                out_of_scope,
+                max_retrieval_reached,
+            )
 
-            if not chunks:
-                await self._respond_text(message_id=message_id, chat_id=chat_id, text="没有找到相关论文，请尝试换个问题。")
-                return
+            answer = result.get("answer", "") if isinstance(result, dict) else ""
+            sources = self._extract_sources(result.get("sources", []) if isinstance(result, dict) else [])
 
-            prompt = RAGPromptBuilder().create_rag_prompt(query=query, chunks=chunks)
-            llm_response = await self.ollama.generate(model=ask_request.model, prompt=prompt, stream=False)
-            answer = llm_response.get("response", "") if llm_response else ""
             formatted = self._format_answer(answer, sources)
 
             await self._respond_text(message_id=message_id, chat_id=chat_id, text=formatted)
         except Exception as e:
             logger.error("Feishu QA failed: %s", e, exc_info=True)
             await self._respond_text(message_id=message_id, chat_id=chat_id, text=f"处理失败：{e}")
+
+    def _extract_sources(self, sources: list) -> list[str]:
+        """Normalize agentic source objects to displayable URL strings."""
+        normalized: list[str] = []
+        seen: set[str] = set()
+
+        for item in sources or []:
+            url = ""
+            if isinstance(item, str):
+                url = item
+            elif isinstance(item, dict):
+                url = str(item.get("url") or item.get("source") or item.get("pdf_url") or "")
+
+            if url and url not in seen:
+                seen.add(url)
+                normalized.append(url)
+
+        return normalized
 
     async def _respond_text(self, message_id: str, chat_id: str, text: str) -> None:
         """Reply to message first; fallback to chat send when reply endpoint rejects request."""

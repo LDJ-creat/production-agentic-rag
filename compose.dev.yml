@@ -1,22 +1,8 @@
 services:
   api:
-    command:
-      [
-        "/app/.venv/bin/uvicorn",
-        "src.main:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8000",
-        "--workers",
-        "1",
-        "--loop",
-        "asyncio",
-        "--reload",
-        "--reload-dir",
-        "/app/src",
-      ]
+    command: ["/bin/sh", "/app/scripts/start-api-dev.sh"]
     volumes:
       - ./src:/app/src
+      - ./scripts/start-api-dev.sh:/app/scripts/start-api-dev.sh
     environment:
       - TELEGRAM__ENABLED=false

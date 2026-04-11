@@ -12,6 +12,30 @@ from .utils import get_latest_query
 logger = logging.getLogger(__name__)
 
 
+def _normalize_query(text: str) -> str:
+    return " ".join("".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in text).split())
+
+
+def continue_after_retrieve(state: AgentState) -> str:
+    """Route retrieve outcome to tool node or direct final generation.
+
+    - If retrieve created tool calls, continue to tool retrieval.
+    - If retrieve reached max attempts and set generate_answer decision, continue to final generation.
+    - Otherwise end.
+    """
+    if state.get("routing_decision") == "generate_answer":
+        return "generate_answer"
+
+    messages = state.get("messages", [])
+    if messages:
+        last_msg = messages[-1]
+        tool_calls = getattr(last_msg, "tool_calls", None)
+        if tool_calls:
+            return "tool_retrieve"
+
+    return "end"
+
+
 async def ainvoke_retrieve_step(
     state: AgentState,
     runtime: Runtime[Context],
@@ -29,7 +53,7 @@ async def ainvoke_retrieve_step(
     start_time = time.time()
 
     messages = state["messages"]
-    question = get_latest_query(messages)
+    question = state.get("active_query") or get_latest_query(messages)
     current_attempts = state.get("retrieval_attempts", 0)
 
     # Get max attempts from context
@@ -82,11 +106,23 @@ async def ainvoke_retrieve_step(
                 metadata={"execution_time_ms": execution_time},
             )
 
-        return {**updates, "messages": [AIMessage(content=fallback_msg)]}
+        return {
+            **updates,
+            "routing_decision": "generate_answer",
+            "evidence_reason": "Retrieval budget exhausted",
+            "messages": [AIMessage(content=fallback_msg)],
+        }
 
     # Increment retrieval attempts
     new_attempt_count = current_attempts + 1
     updates["retrieval_attempts"] = new_attempt_count
+
+    attempted_queries = state.get("attempted_queries", []) or []
+    normalized_existing = {_normalize_query(q) for q in attempted_queries if isinstance(q, str)}
+    normalized_current = _normalize_query(question)
+    if normalized_current and normalized_current not in normalized_existing:
+        updates["attempted_queries"] = [*attempted_queries, question]
+
     logger.info(f"Retrieval attempt {new_attempt_count}/{max_attempts}")
 
     # Create tool call for retrieval

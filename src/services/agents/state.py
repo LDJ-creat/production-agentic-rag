@@ -61,6 +61,15 @@ class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     original_query: Optional[str]
     rewritten_query: Optional[str]
+    intent_route: Optional[str]
+    intent_reason: Optional[str]
+    retrieval_plan_reason: Optional[str]
+    planned_queries: List[str]
+    attempted_queries: List[str]
+    next_query_index: int
+    active_query: Optional[str]
+    evidence_reason: Optional[str]
+    followup_query: Optional[str]
     retrieval_attempts: int
     guardrail_result: Optional[GuardrailScoring]
     routing_decision: Optional[RoutingDecision]

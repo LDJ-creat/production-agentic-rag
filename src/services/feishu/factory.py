@@ -34,6 +34,7 @@ def make_feishu_service(
         embeddings_client=embeddings_client,
         ollama_client=ollama_client,
         cache_client=cache_client,
+        langfuse_tracer=langfuse_tracer,
         default_model=settings.llm.default_model,
         verification_token=feishu_settings.verification_token,
         encrypt_key=feishu_settings.encrypt_key,
